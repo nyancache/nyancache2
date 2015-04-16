@@ -48,7 +48,7 @@ public class PDFGfxAnalytics {
 	
 	private PDDocument document;
 	private InfoStream is;
-	public	Gfx gfx;
+	public	ArrayList<Gfx> gfxList = new ArrayList<>();
 
 	//TEXT STATE PARAMETERS
 	private TMatrix t_m; //Text matrix
@@ -419,7 +419,7 @@ public class PDFGfxAnalytics {
 		ArrayList<Object> flushObjects = new ArrayList<>();
 		PDStream contents = page.getContents();
 	    PDFStreamParser parser = new PDFStreamParser(contents.getStream().getUnfilteredStream(), new RandomAccessBuffer());
-	    gfx = new Gfx(page.getMediaBox().getWidth(), page.getMediaBox().getHeight());
+	    Gfx gfx = new Gfx(page.getMediaBox().getWidth(), page.getMediaBox().getHeight());
 	    
 	    parser.parse();
 	    
@@ -499,7 +499,7 @@ public class PDFGfxAnalytics {
 	    			op_Td((COSNumber) flushObjects.get(0), (COSNumber) flushObjects.get(1));
 	    			break;
 	    		case Tj: //Show text
-	    			op_Tj((COSString) flushObjects.get(0));
+	    			op_Tj((COSString) flushObjects.get(0), gfx);
 	    			break;
 	    		case TJ: //Show text, allowing individual glyph positioning
 	    			break;
@@ -546,6 +546,8 @@ public class PDFGfxAnalytics {
 	    	}
 	    }
 	    
+	    //Die Seite ist zuende geparst, jetzt kann das erstellte Gfx-Element der Liste hinzugefügt werden
+	    gfxList.add(gfx);
 	}
 	
 	  protected String parseUnicodeCMap(CMap map, byte[] input){ //Formt Unicode-Bytes in einen String um
@@ -570,7 +572,7 @@ public class PDFGfxAnalytics {
 		    return output;
 	  }
 	
-	private void op_Tj(COSString cosString) throws IOException{
+	private void op_Tj(COSString cosString, Gfx gfx) throws IOException{
 		PDFont currFont = getFont(); //die Schriftart, die für den String gültig ist
 		byte[] stringBytes = cosString.getBytes();
 		String textString;

@@ -316,7 +316,12 @@ public class Module {
     ArrayList<Integer> ret = new ArrayList<Integer>();
     Map<ArrayList<Integer>,String> retMap = new HashMap<>();
     Map<String,String> endnoteExport = new HashMap<>();
-    int len = fullList.size(); //Gr��e der kompletten Eintrags-Liste
+    try{
+    	pdfUtil.getTitle(newEntry.getPDF(), is, false);
+    }catch(Exception ioe){
+    	ioe.printStackTrace();
+    }
+    /*int len = fullList.size(); //Gr��e der kompletten Eintrags-Liste
     long size = newEntry.getSize();
     String pdfTitle = ""; //Titel des Artikels, der in der PDF-Datei gespeichert ist
     File thisPDF;
@@ -508,7 +513,7 @@ public class Module {
     }
     newEntry = null;
     retMap.put(ret, endnoteOut);
-    System.out.println(endnoteOut);
+    System.out.println(endnoteOut);*/
     return retMap;
   }
   

@@ -74,7 +74,7 @@ public Map<String,Map<String,String>> getTitle(File input, InfoStream is, boolea
     PDPage page;
     String fullText = "";
     
-    try{
+    /*try{
 	    try{
 	        //Ein Überblick über die Struktur von PDF-Dateien liefert der PDF-Standard von Adobe und die Auswertung von PDF-Dateien mittels Preflight
 	        
@@ -271,6 +271,10 @@ public Map<String,Map<String,String>> getTitle(File input, InfoStream is, boolea
     }
     
     ret.put(articleTitle, endnoteExport);
+    */
+    //Testung von PDFGfxAnalytics: Führe eine Textanalyse durch
+    PDFGfxAnalytics analysis = new PDFGfxAnalytics(document, is);
+    analysis.parse();
     return ret;
 }
   
