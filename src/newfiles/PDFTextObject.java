@@ -71,7 +71,7 @@ public class PDFTextObject {
     }
     
     public double getSize(){
-      if(isTmZero())      //Wenn keine Transformationsmatrix gesetzt ist, wird das Ergebnis rein aus der Tf geschlossen
+      if(isTmZero())      //Wenn keine Textmatrix gesetzt ist, wird das Ergebnis rein aus der Tf geschlossen
         return getTf();
       else
         return getTf()*getTm(3);

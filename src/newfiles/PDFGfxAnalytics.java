@@ -9,6 +9,7 @@ import java.util.Map;
 
 import javax.swing.text.BadLocationException;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.math3.exception.DimensionMismatchException;
 import org.apache.commons.math3.exception.NoDataException;
 import org.apache.commons.math3.exception.NotPositiveException;
@@ -23,6 +24,7 @@ import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.linear.RealMatrixChangingVisitor;
 import org.apache.commons.math3.linear.RealMatrixPreservingVisitor;
 import org.apache.commons.math3.linear.RealVector;
+import org.apache.fontbox.cmap.CMap;
 import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSBase;
 import org.apache.pdfbox.cos.COSFloat;
@@ -46,10 +48,12 @@ public class PDFGfxAnalytics {
 	
 	private PDDocument document;
 	private InfoStream is;
-	
+	public	Gfx gfx;
+
 	//TEXT STATE PARAMETERS
 	private TMatrix t_m; //Text matrix
 	private TMatrix t_lm; //Text line matrix
+	private TMatrix ctm; //transformation matrix
 	private boolean t_k; //Text knockout
 	/*
 	 * Unlike other text state parameters, there is no specific operator
@@ -83,6 +87,10 @@ public class PDFGfxAnalytics {
 	
 	protected void setTextLineMatrix(TMatrix tlmatrix){
 		this.t_lm = tlmatrix;
+	}
+	
+	protected void setTransformatoinMatrix(TMatrix ctmatrix){
+		this.ctm = ctmatrix;
 	}
 	
 	protected void setTextKnockout(boolean knockout){
@@ -129,6 +137,10 @@ public class PDFGfxAnalytics {
 		return this.t_lm;
 	}
 	
+	protected TMatrix getTransformationMatrix(){
+		return this.ctm;
+	}
+	
 	protected boolean getTextKnockout(){
 		return this.t_k;
 	}
@@ -169,39 +181,9 @@ public class PDFGfxAnalytics {
 		this.document = d;
 		this.is = i;
 		
-		//Default-Werte außerhalb der Text state parameters setzen (diese werden durch BT gesetzt)
-		
+		ctm = new TMatrix(); //Transformationsmatrix wird auf die Einheitsmatrix gesetzt
 	}
 	
-	
-	public class Glyph{
-		private double x1;		//X-Koordinate oben links
-		private double x2;		//X-Koordinate oben rechts
-		private double y1;		//Y-Koordinate oben links
-		private double y2;		//Y-Koordinate oben rechts
-		private int page;
-		
-		public double getX1(){
-			return this.x1;
-		}
-		
-		public double getY1(){
-			return this.y1;
-		}
-		
-		public double getX2(){
-			return this.x2;
-		}
-		
-		public double getY2(){
-			return this.y2;
-		}
-		
-		public int getPageNum(){
-			return this.page;
-		}
-		
-	}
 	
 	public class TMatrix extends Array2DRowRealMatrix{
 		private static final long serialVersionUID = 1L;
@@ -209,6 +191,13 @@ public class PDFGfxAnalytics {
 		TMatrix(){
 			super(3,3);
 			this.setToIdentity();
+		}
+		
+		TMatrix(RealMatrix m){
+			this();
+			this.setColumn(0, m.getColumn(0));
+			this.setColumn(1, m.getColumn(1));
+			this.setColumn(2, m.getColumn(2));
 		}
 		
 		TMatrix(COSNumber[] input) throws InvalidPropertiesFormatException{
@@ -248,6 +237,10 @@ public class PDFGfxAnalytics {
 					 v20,  v21,  v22);
 		}
 		
+		TMatrix(double a, double b, double c, double d, double e, double f){
+			this();
+			this.updateMatrix(a,b,c,d,e,f);
+		}
 		public void updateMatrix(double v00, double v01, double v02,
 				double v10, double v11, double v12,
 				double v20, double v21, double v22){
@@ -326,6 +319,11 @@ public class PDFGfxAnalytics {
 		
 		public double getY(){
 			return this.getEntry(0, 1);
+		}
+		
+		public void transform(Array2DRowRealMatrix mat){ //Multipliziert den Punkt mit der Matrix
+			this.update(mat.getEntry(0, 0)*getX()+mat.getEntry(1,0)*getY()+mat.getEntry(2,0),
+					mat.getEntry(0, 1)*getX()+mat.getEntry(1,1)*getY()+mat.getEntry(2,1));
 		}
 	}
 	
@@ -419,9 +417,10 @@ public class PDFGfxAnalytics {
 		List<Object> tokens;
 		Map<String,PDFont> fonts = new HashMap<>();
 		ArrayList<Object> flushObjects = new ArrayList<>();
-		
 		PDStream contents = page.getContents();
 	    PDFStreamParser parser = new PDFStreamParser(contents.getStream().getUnfilteredStream(), new RandomAccessBuffer());
+	    gfx = new Gfx(page.getMediaBox().getWidth(), page.getMediaBox().getHeight());
+	    
 	    parser.parse();
 	    
 	    tokens = parser.getTokens();
@@ -457,6 +456,7 @@ public class PDFGfxAnalytics {
 	    //Gehe alle Tokens durch
 	    for(Object token : tokens){
 	    	if(token instanceof PDFOperator){
+	    		//Dank getValOp wird in Operator nur dann zurückgemeldet, wenn die Übergebenen Parameter passend sind
 	    		switch(getValOp(((PDFOperator) token).getOperation(), flushObjects)){
 	    		case BT: //Begin text object
 	    			//Standardwerte setzen
@@ -464,6 +464,13 @@ public class PDFGfxAnalytics {
 	    			setTextDefaults();
 	    			break;
 	    		case cm: //Concatenate matrix to current transformation matrix
+	    			 //Es werden 6 COSNumber-Werte übertragen
+	    			op_cm((COSNumber) flushObjects.get(0),
+	    					(COSNumber) flushObjects.get(1),
+	    					(COSNumber) flushObjects.get(2),
+	    					(COSNumber) flushObjects.get(3),
+	    					(COSNumber) flushObjects.get(4),
+	    					(COSNumber) flushObjects.get(5));
 	    			break;
 	    		case d0: //Set glyph width in Type 3 font
 	    			break;
@@ -473,42 +480,61 @@ public class PDFGfxAnalytics {
 	    			/*nothing*/
 	    			break;
 	    		case T_STAR: //Move to start of next text line
+	    			/*
+	    			 * T* =
+	    			 * 		0 T_l Td (wobei T_l = leading)
+	    			 */
+	    			op_Td(COSInteger.ZERO, new COSFloat((float) getLeading()));
 	    			break;
 	    		case Td: //Move text position
+	    			op_Td((COSNumber) flushObjects.get(0), (COSNumber) flushObjects.get(1));
 	    			break;
 	    		case TD: //Move text position and set leading
+	    			/*
+	    			 * t_x t_y TD =
+	    			 * 		-t_y TL
+	    			 * 		t_x t_y Td
+	    			 */
+	    			op_TL(new COSFloat(((COSNumber) flushObjects.get(0)).floatValue()*(-1)));
+	    			op_Td((COSNumber) flushObjects.get(0), (COSNumber) flushObjects.get(1));
 	    			break;
 	    		case Tj: //Show text
+	    			op_Tj((COSString) flushObjects.get(0));
 	    			break;
 	    		case TJ: //Show text, allowing individual glyph positioning
 	    			break;
 	    		case Tm: //Set text matrix and text line matrix
+	    			op_Tm((COSNumber) flushObjects.get(0),
+	    					(COSNumber) flushObjects.get(1),
+	    					(COSNumber) flushObjects.get(2),
+	    					(COSNumber) flushObjects.get(3),
+	    					(COSNumber) flushObjects.get(4),
+	    					(COSNumber) flushObjects.get(5));
 	    			break;
 	    		case _HYPHEN: //Move to next line and show text
 	    			break;
 	    		case _QMARK: //Set word and character spacing, move to next line, and show text
 	    			break;
 	    		case Tc: //Set character spacing
-	    			setCharacterSpacing(((COSNumber) flushObjects.get(0)).doubleValue());
+	    			op_Tc((COSNumber) flushObjects.get(0));
 	    			break;
 	    		case Tw: //Set word spacing
-	    			setWordSpacing(((COSNumber) flushObjects.get(0)).doubleValue());
+	    			op_Tw((COSNumber) flushObjects.get(0));
 	    			break;
 	    		case Tz: //Set horizontal text scaling
-	    			setHorizontalScaling(((COSNumber) flushObjects.get(0)).doubleValue());
+	    			op_Tz((COSNumber) flushObjects.get(0));
 	    			break;
 	    		case TL: //Set text leading
-	    			setLeading(((COSNumber) flushObjects.get(0)).doubleValue());
+	    			op_TL((COSNumber) flushObjects.get(0));
 	    			break;
 	    		case Tf: //Set text font and size
-	    			setFont(fonts.get((COSString) flushObjects.get(0)));
-	    			setFontSize(((COSNumber) flushObjects.get(1)).doubleValue());
+	    			op_Tf(fonts.get((COSString) flushObjects.get(0)), ((COSNumber) flushObjects.get(1)));
 	    			break;
 	    		case Tr: //Set text rendering mode
-	    			setTextRenderingMode(((COSInteger) flushObjects.get(0)).intValue());
+	    			op_Tr((COSInteger) flushObjects.get(0));
 	    			break;
 	    		case Ts: //Set text rise
-	    			setTextRise(((COSNumber) flushObjects.get(0)).doubleValue());
+	    			op_Ts((COSNumber) flushObjects.get(0));
 	    			break;
 	    		default:
 	    			break;
@@ -520,6 +546,154 @@ public class PDFGfxAnalytics {
 	    	}
 	    }
 	    
+	}
+	
+	  protected String parseUnicodeCMap(CMap map, byte[] input){ //Formt Unicode-Bytes in einen String um
+		    String output = "";
+		    
+		    /* Es wird überprüft, welche Codierungsform vorliegt.
+		     * Je nachdem, wird die entsprechende Funktion aufgerufen.
+		     */
+		    if(map.hasTwoByteMappings()){
+		      for(int i = 0; (i+1) < input.length; i = i+2){
+		        output = output + map.lookup(input, i, 2);
+		      }
+		    }else if(map.hasOneByteMappings()){
+		      for(int i = 0; i < input.length; i++){
+		        output = output + map.lookup(input, i, 1);
+		      }
+		    }else if(map.hasCIDMappings()){
+		      for(int i = 0; i < input.length; i++){
+		        output = output + map.lookupCID(input, i, 1);
+		      }
+		    }
+		    return output;
+	  }
+	
+	private void op_Tj(COSString cosString) throws IOException{
+		PDFont currFont = getFont(); //die Schriftart, die für den String gültig ist
+		byte[] stringBytes = cosString.getBytes();
+		String textString;
+		double stringWidth;
+		Point 	p1, p2, p3, p4; //4 Punkte des Text-Rechtecks. Im Uhrzeigersinn von oben links
+		TMatrix translation = new TMatrix();
+		
+		//Schritt 1: Umformung der bytes zu einem String
+		
+		if (currFont.getToUnicodeCMap() == null){ //Der Text ist in einer ASCII-Schrift gehalten
+			//Jedem Byte im String ist ein Glyph zugeordnet
+			textString = cosString.toString();
+		}else{
+			textString = parseUnicodeCMap(currFont.getToUnicodeCMap(), stringBytes);
+		}
+		
+		//Schritt 2: Ermittlung der Breite des Strings vor Textmatrix
+		
+		//Ermittle die reguläre Breite des Strings in dem Font
+		stringWidth = currFont.getStringWidth(textString);
+		
+		//Füllt zwischen jedes Zeichenpaar ein CharacterSpacing
+		stringWidth += getCharacterSpacing()*(textString.length()-1);
+		
+		//Handelt es sich um einen simple font oder einen single byte font? Dann word spacing berücksichtigen
+		if(currFont.getToUnicodeCMap() == null && !currFont.getToUnicodeCMap().hasTwoByteMappings()){
+			for(byte glyph : stringBytes){
+				if (glyph == 32){
+					stringWidth += getWordSpacing();
+				}
+			}
+		}
+		
+		//Berücksichtigung der horizontalen Skalierung
+		stringWidth *= (getHorizontalScaling()/100);
+		
+		//Das Rechteck wird nun im unskalierten Text Space ermittelt
+		p1 = new Point(0,getTextRise()); //oben Links
+		p2 = new Point(stringWidth, -getTextRise()); //oben Rechts
+		p3 = new Point(stringWidth, getFontSize()-getTextRise()); //unten Rechts
+		p4 = new Point(0, getFontSize()-getTextRise());
+		
+		//Nun wird das Rechteck durch die Textmatrix skaliert
+		p1.transform(getTextMatrix());
+		p2.transform(getTextMatrix());
+		p3.transform(getTextMatrix());
+		p4.transform(getTextMatrix());
+		
+		//Zuletzt wird das Rechteck durch die Transformationsmatrix in den User Space transformiert
+		p1.transform(getTransformationMatrix());
+		p2.transform(getTransformationMatrix());
+		p3.transform(getTransformationMatrix());
+		p4.transform(getTransformationMatrix());
+		
+		//Füge das Rechteck der Gfx hinzu
+		gfx.add(new Rectangle(p1,p2,p3,p4));
+		
+		//Aktualisiere die Textmatrix, indem um die Breite des Strings nach rechts verschoben wird
+		translation.makeTranslationMatrix(stringWidth, 0);
+		getTextMatrix().preMultiply(translation);
+	}
+
+	private void op_Ts(COSNumber cosNumber) { //Set text rise
+		setTextRise(cosNumber.doubleValue());
+	}
+
+	private void op_Tr(COSInteger cosInteger) { //Set text rendering mode
+		setTextRenderingMode(cosInteger.intValue());
+	}
+
+	private void op_Tf(PDFont pdFont, COSNumber cosNumber) { //Set text font and size
+		setFont(pdFont);
+		setFontSize(cosNumber.doubleValue());
+	}
+
+	private void op_TL(COSNumber cosNumber) { //Set text leading
+		setLeading(cosNumber.doubleValue());
+	}
+
+	private void op_Tz(COSNumber cosNumber) { //set horizontal text scaling
+		setHorizontalScaling(cosNumber.doubleValue());
+	}
+
+	private void op_Tw(COSNumber cosNumber) { //Set word spacing
+		setWordSpacing(cosNumber.doubleValue());
+	}
+
+	private void op_Tc(COSNumber cosNumber) { //Set character spacing
+		setCharacterSpacing(cosNumber.doubleValue());
+	}
+
+	public void op_Td(COSNumber t_x, COSNumber t_y){ //move text position
+		//Der erste übertragene Wert ist x, der zweite übertragene Wert ist y
+		//Mit diesen Werten wird eine Translationsmatrix erstellt
+		TMatrix tempMatrix = new TMatrix();
+		tempMatrix.makeTranslationMatrix(t_x.doubleValue(),
+				t_y.doubleValue());
+		//Die neue text line matrix wird berechnet, indem die Translationsmatrix mit
+		//der alten text line matrix multipliziert wird
+		setTextLineMatrix(new TMatrix(tempMatrix.multiply(getTextLineMatrix())));
+		
+		//text line matrix und text matrix werden gleich gesetzt
+		setTextMatrix(new TMatrix(getTextLineMatrix().copy()));
+	}
+	
+	public void op_cm(COSNumber a, COSNumber b, COSNumber c, COSNumber d, COSNumber e, COSNumber f){
+		getTransformationMatrix().updateMatrix(a.doubleValue(),
+				b.doubleValue(),
+				c.doubleValue(),
+				d.doubleValue(),
+				e.doubleValue(),
+				f.doubleValue());
+	}
+	
+	public void op_Tm(COSNumber a, COSNumber b, COSNumber c, COSNumber d, COSNumber e, COSNumber f){
+		getTextMatrix().updateMatrix(a.doubleValue(),
+				b.doubleValue(),
+				c.doubleValue(),
+				d.doubleValue(),
+				e.doubleValue(),
+				f.doubleValue());
+		//Setze text line matrix und text matrix gleich
+		setTextLineMatrix(new TMatrix(getTextMatrix().copy()));
 	}
 	
 	private ClassList nl(){
@@ -544,9 +718,7 @@ public class PDFGfxAnalytics {
 	//Diese Funktion überprüft für einen aktuellen Operator und die flushObjects, ob
 	//sie den Regeln für einen bestimmten Operator entsprechen
 	protected Operators getValOp(String givenOp, ArrayList<Object> flushObjects){
-		Operators ret = null;
 		Map<String, ClassList> var = new HashMap<>();
-		ClassList toCheck = new ClassList();
 		
 		var.put("BT", nl()); //keine Operanden
 		var.put("cm", nl().a(COSNumber.class).a(COSNumber.class).a(COSNumber.class)
@@ -595,5 +767,62 @@ public class PDFGfxAnalytics {
 		
 		return ret;
 	}
+
+	class Rectangle{
+		Point p1,p2,p3,p4;
+		
+		Rectangle(Point u1, Point u2, Point u3, Point u4){
+			p1 = u1;
+			p2 = u2;
+			p3 = u3;
+			p4 = u4;
+		}
+		
+		void setUpperLeft(Point p){
+			p1 = p;
+		}
+		
+		void setUpperRight(Point p){
+			p2 = p;
+		}
+		
+		void setLowerRight(Point p){
+			p3 = p;
+		}
+		
+		void setLowerLeft(Point p){
+			p4 = p;
+		}
+		
+		Point getUpperLeft(){
+			return p1;
+		}
+		
+		Point getUpperRight(){
+			return p2;
+		}
+		
+		Point getLowerRight(){
+			return p3;
+		}
+		
+		Point getLowerLeft(){
+			return p4;
+		}
+	}
 	
+	class Gfx{
+		double height, width;
+		ArrayList<Rectangle> rect;
+		
+		Gfx(double h, double w){
+			height = h;
+			width = w;
+			rect = new ArrayList<>();
+		}
+		
+		void add(Rectangle r){
+			rect.add(r);
+		}
+	}
 }
