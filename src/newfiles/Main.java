@@ -230,8 +230,10 @@ public static final String VERSION = "1.1.3";
       if (!duplicateFound) {
         retMap = (Module.getNewDoublicates(new Entry(thisFile),
             entryList, is, online, tryRename));
-        ret.add((ArrayList<Integer>)retMap.keySet().toArray()[0]);
-        pwStrings.add((String)retMap.values().toArray()[0]);
+        if(retMap.size() > 0){
+        	ret.add((ArrayList<Integer>)retMap.keySet().toArray()[0]);
+        	pwStrings.add((String)retMap.values().toArray()[0]);
+        }
       }
 
       buttonD.setEnabled(true);
@@ -506,7 +508,7 @@ public static final String VERSION = "1.1.3";
     buttonA.setEnabled(true);
     buttonB.setEnabled(true);
     buttonC.setEnabled(true);
-    buttonD.setEnabled(false);
+    buttonD.setEnabled(true); //Dies kann nach dem Debugging wieder auf false gesetzt werden
 
     button0.setFocusable(false);
     button1.setFocusable(false);
@@ -1119,7 +1121,7 @@ public static final String VERSION = "1.1.3";
     @Override
     public void actionPerformed(ActionEvent ae){
       //Zeige ein Fenster an, in dem die Analyse-Einstellungen gewählt werden können
-      
+      System.out.println("pdfAnalysisWindow wird geöffnet.");
       pdfAnalysisWindow.setBounds(100, 100, 250, 165);
 
       pdfAnalysisWindow.setTitle("Einstellungen");

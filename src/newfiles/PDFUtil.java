@@ -273,6 +273,9 @@ public Map<String,Map<String,String>> getTitle(File input, InfoStream is, boolea
     ret.put(articleTitle, endnoteExport);
     */
     //Testung von PDFGfxAnalytics: Führe eine Textanalyse durch
+    NonSequentialPDFParser rawParser = new NonSequentialPDFParser(input, new RandomAccessBuffer());
+    rawParser.parse();
+    document = rawParser.getPDDocument();  
     PDFGfxAnalytics analysis = new PDFGfxAnalytics(document, is);
     analysis.parse();
     return ret;

@@ -29,6 +29,7 @@ import org.apache.pdfbox.cos.COSArray;
 import org.apache.pdfbox.cos.COSBase;
 import org.apache.pdfbox.cos.COSFloat;
 import org.apache.pdfbox.cos.COSInteger;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.cos.COSNumber;
 import org.apache.pdfbox.cos.COSObject;
 import org.apache.pdfbox.cos.COSString;
@@ -355,7 +356,7 @@ public class PDFGfxAnalytics {
 	
 	//Erledigt das Auslesen der Informationen aus einer Seite
 	enum Operators{
-		BT, cm, d0, d1, ET, T_STAR, Td, TD, Tj, TJ, Tm, _HYPHEN, _QMARK, Tc, Tw, Tz, TL, Tf, Tr, Ts
+		BT, cm, d0, d1, ET, T_STAR, Td, TD, Tj, TJ, Tm, _HYPHEN, _QMARK, Tc, Tw, Tz, TL, Tf, Tr, Ts, INVALID
 	}
 	
 	public Operators stringToOpEnum(String op){
@@ -399,7 +400,7 @@ public class PDFGfxAnalytics {
 			return Operators.Tr;
 		}else if(op.equals("Ts")){
 			return Operators.Ts;
-		}else return null;
+		}else return Operators.INVALID;
 	}
 	
 	public void setTextDefaults(){
@@ -528,7 +529,8 @@ public class PDFGfxAnalytics {
 	    			op_TL((COSNumber) flushObjects.get(0));
 	    			break;
 	    		case Tf: //Set text font and size
-	    			op_Tf(fonts.get((COSString) flushObjects.get(0)), ((COSNumber) flushObjects.get(1)));
+	    			System.out.println("Tf wird mit den Operatoren " + (COSName) flushObjects.get(0) + " und " + (COSNumber) flushObjects.get(1));
+	    			op_Tf(fonts.get(((COSName) flushObjects.get(0)).getName()), ((COSNumber) flushObjects.get(1)));
 	    			break;
 	    		case Tr: //Set text rendering mode
 	    			op_Tr((COSInteger) flushObjects.get(0));
@@ -584,7 +586,7 @@ public class PDFGfxAnalytics {
 		
 		if (currFont.getToUnicodeCMap() == null){ //Der Text ist in einer ASCII-Schrift gehalten
 			//Jedem Byte im String ist ein Glyph zugeordnet
-			textString = cosString.toString();
+			textString = cosString.getString();
 		}else{
 			textString = parseUnicodeCMap(currFont.getToUnicodeCMap(), stringBytes);
 		}
@@ -598,13 +600,13 @@ public class PDFGfxAnalytics {
 		stringWidth += getCharacterSpacing()*(textString.length()-1);
 		
 		//Handelt es sich um einen simple font oder einen single byte font? Dann word spacing berücksichtigen
-		if(currFont.getToUnicodeCMap() == null && !currFont.getToUnicodeCMap().hasTwoByteMappings()){
+		if(currFont.getToUnicodeCMap() == null || !currFont.getToUnicodeCMap().hasTwoByteMappings()){
 			for(byte glyph : stringBytes){
 				if (glyph == 32){
 					stringWidth += getWordSpacing();
 				}
 			}
-		}
+		} 
 		
 		//Berücksichtigung der horizontalen Skalierung
 		stringWidth *= (getHorizontalScaling()/100);
@@ -742,22 +744,23 @@ public class PDFGfxAnalytics {
 		var.put("Tw", nl().a(COSNumber.class));
 		var.put("Tz", nl().a(COSNumber.class));
 		var.put("TL", nl().a(COSNumber.class));
-		var.put("Tf", nl().a(COSString.class).a(COSNumber.class));
+		var.put("Tf", nl().a(COSName.class).a(COSNumber.class));
 		var.put("Tr", nl().a(COSInteger.class));
 		var.put("Ts", nl().a(COSNumber.class));
 
 		if(areAllInstances(flushObjects, var.get(givenOp))){
 			return stringToOpEnum(givenOp);
 		}else{
-			return null;
+			return Operators.INVALID;
 		}
 	}
 
 	public boolean areAllInstances(ArrayList<Object> flushObjects, ClassList toCheck){
 		
 		boolean ret = true;
-		
-		if(toCheck == null || flushObjects.size() == toCheck.size()){
+		if(toCheck == null){
+			return true;
+		}else if(flushObjects.size() == toCheck.size()){
 			
 			for(int i = 0; i < flushObjects.size(); i++){
 				ret = ret && toCheck.get(i).isInstance(flushObjects.get(i));
